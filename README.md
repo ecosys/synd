@@ -1,0 +1,4 @@
+synd
+====
+
+syndication
