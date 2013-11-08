@@ -60,16 +60,15 @@ func (syn *syndicator) Async() (Report, error) {
 		rep.Log = append(rep.Log, r.Log...)
 
 		if !r.Success {
+			//if any action fails, overall report shows failure
 			rep.Success = false
-			log.Println("HACK: we shouldn't need to break here")
-			break
 		}
 		fin++
 		if fin == cnt {
 			break
 		}
 	}
-	log.Println("done with results")
+	log.Println("action execution complete")
 
 	return rep, nil
 }
@@ -81,7 +80,7 @@ func (syn *syndicator) execActions(acts []*Action, r chan Report) {
 	//close(r)
 }
 func (syn *syndicator) execAction(act *Action, r chan Report) {
-	log.Println("executing action")
+	log.Println("executing action", act.Name)
 	rep := Report{}
 
 	rep.Success = true
@@ -104,7 +103,7 @@ func (syn *syndicator) execAction(act *Action, r chan Report) {
 		rep, err = syn.execXmlRpc(act)
 	}
 
-	log.Println("returning action report")
+	log.Println("returning action report", act.Name)
 	r <- rep
 }
 
@@ -198,6 +197,9 @@ func (syn *syndicator) execJson(act *Action) (Report, error) {
 	switch act.Authenticator.Name {
 	case "oauth":
 		syn.signRequest(fullurl, meth, act, req)
+	case "simple":
+		log.Printf("setting basic auth with: %v\n", act.Authenticator)
+		req.SetBasicAuth(act.Authenticator.Param["username"], act.Authenticator.Param["password"])
 	}
 
 	client := &http.Client{}

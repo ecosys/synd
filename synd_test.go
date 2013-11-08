@@ -55,7 +55,7 @@ func Test_synd(t *testing.T) {
 		log.Fatal("syndication failed.")
 	}
 
-	//log.Println("log: ", rep)
+	log.Println("log: ", rep)
 
 }
 
