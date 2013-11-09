@@ -113,12 +113,12 @@ func (syn *syndicator) execSmtp(act *Action) (Report, error) {
 	// Set up authentication information.
 	auth := smtp.PlainAuth(
 		"",
-		act.Config["username"],
-		act.Config["password"],
-		act.Config["server"],
+		act.Authenticator.Param["username"],
+		act.Authenticator.Param["password"],
+		act.Authenticator.Param["server"],
 	)
 
-	sender := act.Param["sender"][0]
+	sender := act.Config["sender"]
 
 	body := "" +
 		"To: " + sender + //for email lists, use the sender as the recip for the email clients to hide other recipients
@@ -128,7 +128,7 @@ func (syn *syndicator) execSmtp(act *Action) (Report, error) {
 	// Connect to the server, authenticate, set the sender and recipient,
 	// and send the email all in one step.
 	err := smtp.SendMail(
-		act.Param["server"][0],
+		act.Config["server"],
 		auth,
 		sender,
 		act.Param["recipients"],
@@ -174,6 +174,7 @@ func (syn *syndicator) execJson(act *Action) (Report, error) {
 
 	switch tpe {
 	case "URL":
+
 		for k, v := range act.Param {
 			parm := "%" + k + "%"
 			var av string
@@ -187,6 +188,14 @@ func (syn *syndicator) execJson(act *Action) (Report, error) {
 			fullurl = strings.Replace(fullurl, k+"="+parm, av, 1)
 
 		}
+		//HACK: ugh, this should be configured with the other auth
+		if act.Authenticator.Name == "url" {
+			for k, v := range act.Authenticator.Param {
+				parm := "%" + k + "%"
+				log.Println("auth parm: ", parm)
+				fullurl = strings.Replace(fullurl, parm, v, 1)
+			}
+		}
 		req, err = http.NewRequest(meth, fullurl, strings.NewReader(body))
 	case "FORM":
 		body = strings.Replace(url.Values(act.Param).Encode(), "+", "%20", -1)
@@ -194,10 +203,11 @@ func (syn *syndicator) execJson(act *Action) (Report, error) {
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	}
 
+	//HACK: ugh, only 'url' handled above
 	switch act.Authenticator.Name {
 	case "oauth":
 		syn.signRequest(fullurl, meth, act, req)
-	case "simple":
+	case "basic":
 		log.Printf("setting basic auth with: %v\n", act.Authenticator)
 		req.SetBasicAuth(act.Authenticator.Param["username"], act.Authenticator.Param["password"])
 	}
@@ -220,16 +230,16 @@ func (syn *syndicator) signRequest(fullurl string, method string, act *Action, r
 	nonce := strconv.FormatInt(rand.New(rand.NewSource(time.Now().Unix())).Int63(), 10)
 
 	sig, _ := oauthSvc.Sign(method, fullurl, timestamp, nonce,
-		act.Config["oauth_consumer_key"], act.Config["oauth_consumer_secret"],
-		act.Config["oauth_token"], act.Config["oauth_token_secret"],
+		act.Authenticator.Param["oauth_consumer_key"], act.Authenticator.Param["oauth_consumer_secret"],
+		act.Authenticator.Param["oauth_token"], act.Authenticator.Param["oauth_token_secret"],
 		act.Param)
 
-	header := "OAuth " + url.QueryEscape("oauth_consumer_key") + "=" + "\"" + url.QueryEscape(act.Config["oauth_consumer_key"]) + "\"" + ", "
+	header := "OAuth " + url.QueryEscape("oauth_consumer_key") + "=" + "\"" + url.QueryEscape(act.Authenticator.Param["oauth_consumer_key"]) + "\"" + ", "
 	header += url.QueryEscape("oauth_nonce") + "=" + "\"" + url.QueryEscape(nonce) + "\"" + ", "
 	header += url.QueryEscape("oauth_signature") + "=" + "\"" + url.QueryEscape(sig) + "\"" + ", "
 	header += url.QueryEscape("oauth_signature_method") + "=" + "\"" + url.QueryEscape("HMAC-SHA1") + "\"" + ", "
 	header += url.QueryEscape("oauth_timestamp") + "=" + "\"" + timestamp + "\"" + ", "
-	header += url.QueryEscape("oauth_token") + "=" + "\"" + url.QueryEscape(act.Config["oauth_token"]) + "\"" + ", "
+	header += url.QueryEscape("oauth_token") + "=" + "\"" + url.QueryEscape(act.Authenticator.Param["oauth_token"]) + "\"" + ", "
 	header += url.QueryEscape("oauth_version") + "=" + "\"" + url.QueryEscape("1.0") + "\""
 
 	req.Header.Set("Authorization", header)
@@ -246,12 +256,17 @@ func (syn *syndicator) execXmlRpc(act *Action) (Report, error) {
 
 	fullurl = act.Config["url"] + act.Config["action"]
 
+	for k, v := range act.Config {
+		parm := "%" + k + "%"
+		fullurl = strings.Replace(fullurl, parm, v, 1)
+	}
+
 	body = "<methodCall>"
 	body += "<methodName>wp.newPost</methodName>"
 	body += "<params>"
 	///NOTE: XML-RPC for wordpress needs an order
 	body += "<blog_id><value><int>0</int></value></blog_id>" ///HACK: hard coded blog id to 0.  This should work for most installations.  Careful with MU when not using subdomains.
-	for n, c := range act.Config {
+	for n, c := range act.Authenticator.Param {
 		if n != "url" && n != "action" && n != "method" {
 			body += fmt.Sprintf("<%s>", n)
 			body += fmt.Sprintf("<value>%s</value>", c)
@@ -277,17 +292,23 @@ func (syn *syndicator) execXmlRpc(act *Action) (Report, error) {
 	req, err = http.NewRequest(meth, fullurl,
 		strings.NewReader(body))
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
-
 	if err != nil {
 		rep.Success = false
-		log.Fatal(err)
-	}
-	rep.Success = true
-	b, err := ioutil.ReadAll(resp.Body)
-	rep.Log = append(rep.Log, string(b))
+		rep.Log = append(rep.Log, err.Error())
+	} else {
 
-	return rep, nil
+		client := &http.Client{}
+		resp, err := client.Do(req)
+
+		if err != nil {
+			rep.Success = false
+			log.Fatal(err)
+		}
+		rep.Success = true
+		b, err := ioutil.ReadAll(resp.Body)
+		rep.Log = append(rep.Log, string(b))
+
+	}
+	return rep, err
 
 }

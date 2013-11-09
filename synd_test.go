@@ -37,7 +37,7 @@ func Test_synd(t *testing.T) {
 				}
 			}
 
-			a.Configure(ca.Config, ca.Param)
+			a.Configure(ca.Auth, ca.Config, ca.Param)
 			acts = append(acts, a)
 		}
 	}
@@ -52,7 +52,7 @@ func Test_synd(t *testing.T) {
 	}
 
 	if !rep.Success {
-		log.Fatal("syndication failed.")
+		log.Fatal("syndication failed.", rep.Log)
 	}
 
 	log.Println("log: ", rep)

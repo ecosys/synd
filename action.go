@@ -14,12 +14,18 @@ type Action struct {
 	configured    bool
 }
 
-func (act *Action) Configure(config map[string]string, param map[string][]string) {
+func (act *Action) Configure(auth map[string]string, config map[string]string, param map[string][]string) {
+	if act.Authenticator.Param == nil {
+		act.Authenticator.Param = make(map[string]string)
+	}
 	if act.Config == nil {
 		act.Config = make(map[string]string)
 	}
 	if act.Param == nil {
 		act.Param = make(map[string][]string)
+	}
+	for k, p := range auth {
+		act.Authenticator.Param[k] = p
 	}
 	for k, c := range config {
 		act.Config[k] = c
