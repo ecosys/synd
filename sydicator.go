@@ -80,14 +80,14 @@ func (syn *syndicator) execActions(acts []*Action, r chan Report) {
 	//close(r)
 }
 func (syn *syndicator) execAction(act *Action, r chan Report) {
-	log.Println("executing action", act.Name)
+	log.Println("executing action: ", act.Name)
 	rep := Report{}
 
 	rep.Success = true
 
 	err := act.Validate()
 
-	if err != nil {
+	if false && err != nil {
 		rep.Success = false
 		rep.Log = append(rep.Log, err.Error())
 		log.Println("action error", err)
